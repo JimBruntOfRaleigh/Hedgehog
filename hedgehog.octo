@@ -1,0 +1,1327 @@
+# Hedgehog the Drug Dog.
+# It's a game I made with my grandma.
+
+# wasd to move. q to bark.
+# bark at the drug mules and don't let them escape.
+
+# code copyright Funky Stu 2016.
+# concept by my grandma, THE BEVERLY HILLS PSYCHIC.
+
+# Copying and distribution of this file, with or without modification,
+# are permitted in any medium without royalty provided the copyright notice
+# and this notice are preserved. This file is offered as-is, without any warranty.
+
+
+: smell-gfx
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+0xFF 0xFF 0xFF 0xFF
+
+
+#which smells are active
+:alias smell          vd
+#smell frames to erase.
+:alias smell-over     v7
+
+#the which frame we're on for each smell animation
+:alias smell-left     vc
+:alias smell-right    vb
+
+#which smell is the correct one? (first 3 bits)
+#smell-speed how fast is the animation. (next 3 bits)
+#movement-info ie when the men move. (last 2 bits)
+:alias game-info     va
+
+#dog-x contains l/r data (last bit) 0 for left 1 for right
+#dog-x also contains data about the tail wagging in second to last bit.
+:alias dog-x          v9
+:alias dog-y          v8
+
+#what row are the men on. Stutter for effect.
+:alias men-y          v6
+:alias men-stutter    ve
+
+#function registers
+# v5
+# v4
+# v3
+# v2
+# v1
+# v0
+:alias compare-temp v0
+
+
+#
+# SMELLS
+#
+
+#a function to create one frame for a smell.
+: shift-for-smell
+  v1 := random 0x3
+  #0 : right 2
+  #1 : right 1
+  #2 : left 1
+  #3 : left 2
+  if v0 == 0b10000000 begin
+    v1 >>= v1
+  end
+
+  if v0 == 0b00001000 begin
+    v1 := random 0x1
+    v1 += 2
+  end
+
+  if v0 == 0b01000000 begin
+    if v1 == 3 then v1 += -1
+  end
+
+  if v0 == 0b00010000 begin
+    if v1 == 0 then v1 += 1
+  end
+
+  if v1 == 0 begin
+    v0 >>= v0
+    v0 >>= v0
+    return
+  end
+
+  if v1 == 1 begin
+    v0 >>= v0
+    return
+  end
+
+  if v1 == 2 begin
+    v0 <<= v0
+    return
+  end
+
+  if v1 == 3 begin
+    v0 <<= v0
+    v0 <<= v0
+  end
+;
+
+#a single frame for a smell
+: make-smell-frame
+    v1 := 0
+    v0 := 0
+
+    #random top one
+    v0 := 0b10000000
+    v1 := random 0x4
+    loop
+      while v1 != 0
+      v0 >>= v0
+      v1 += -1
+    again
+
+    save v0
+
+    #shift randomly for the next one.
+    shift-for-smell
+    save v0
+
+    #the next one we to not be 32.
+    loop
+      shift-for-smell
+      while v0 == 32
+    again
+
+    save v0
+
+    v0 := 0b00100000
+    save v0
+;
+
+#write smells to RAM
+: make-smell-animation
+  v2 := 0
+  loop
+    while v2 != 4
+    make-smell-frame
+    v2 += 1
+  again
+;
+
+#fill the animations.
+: init-smells
+  i := smell-gfx
+  ve := 0
+  loop
+    while ve != 8
+    make-smell-animation
+    ve += 1
+  again
+;
+
+#debugging function to see if the smells were generated
+: display-smells
+  v1 := 0
+  v2 := 4
+  i := smell-gfx
+  loop
+    clear
+    v0 := 16
+    sprite v0 v0 4
+    i += v2
+    v1 += 4
+    long-sync
+    if v1 == 128 then return
+  again
+;
+
+# Activate a smell on its own.
+: activate-smell
+  #choose a smell and activate
+  v0 := random 0x7
+  v1 := 1
+  v2 := 0
+  loop
+    while v2 != v0
+    v1 <<= v1
+    v2 += 1
+  again
+
+  smell |= v1
+;
+
+#draw and increment frames for the smells.
+: animate-smells
+  if smell == 0 then return
+  #don't animate smells each frame.
+  v0 := 0b00111000
+  v0 &= game-info
+  if v0 != 0 then return
+
+  i := smell-gfx
+  v0 := 1
+  #v1
+  #v2
+  #v3
+
+  #position (x,y)
+  v4 := 4
+  v5 := 1
+
+  #left.
+  loop
+    while v0 != 0b00010000
+      v1 := smell
+      v1 &= v0
+
+      #the smell is to be drawn
+      if v1 == v0 begin
+        #check what frame this animation is on.
+        v1 := 0b00000011
+        v2 := 0b00000001
+        v3 := 0b00000001 #for incrementing the frame
+
+        #only grab the two bits we're interested in
+        #which represent the frame number
+        loop
+          while v2 != v0
+            v1 <<= v1
+            v1 <<= v1
+            v3 <<= v3
+            v3 <<= v3
+            v2 <<= v2
+        again
+
+        v1 &= smell-left
+        loop
+          while v2 != 0b00000001
+            v1 >>= v1
+            v1 >>= v1
+            v2 >>= v2
+        again
+
+        #v1 should now be a number between 0 and 3 representing which frame of the animation is next.
+        v1 <<= v1
+        v1 <<= v1
+        #v1 should now be a number {0, 4, 8, 12}
+
+        #erase last smell
+        if v1 != 0 begin
+          v2 := v1
+          v2 += -4
+          i += v2
+          sprite v4 v5 4
+          v2 := 4
+          i += v2
+        end
+
+        #and draw the smell
+        sprite v4 v5 4
+
+
+        #and increment this animation's frame
+        if v1 == 12 begin
+          #reset this frame.
+          smell-left -= v3
+          smell-left -= v3
+          smell-left -= v3
+          smell ^= v0
+          smell-over |= v0
+
+        else
+          smell-left += v3
+        end
+
+        #move i to next animation
+        v2 := 16
+        v2 -= v1
+        i += v2
+
+
+      else
+        #otherwise, if no smell activated,
+        #then go to the next smell animation
+        v1 := 16
+        i += v1
+      end
+
+      #next column
+      v4 += 7
+
+      #increment v0
+      v0 <<= v0
+    again
+
+    #right
+    loop
+      while v0 != 0b00000000
+        v1 := smell
+        v1 &= v0
+
+        #the smell is to be drawn
+        if v1 == v0 begin
+          #check what frame this animation is on.
+          v1 := 0b00000011
+          v2 := 0b00010000
+          v3 := 0b00000001 #for incrementing the frame
+
+          #only grab the two bits we're interested in
+          #which represent the frame number
+          loop
+            while v2 != v0
+              v1 <<= v1
+              v1 <<= v1
+              v3 <<= v3
+              v3 <<= v3
+              v2 <<= v2
+          again
+
+          v1 &= smell-right
+          loop
+            while v2 != 0b00010000
+              v1 >>= v1
+              v1 >>= v1
+              v2 >>= v2
+          again
+
+          #v1 should now be a number between 0 and 3.
+          v1 <<= v1
+          v1 <<= v1
+          #v1 should now be a number {0, 4, 8, 12}
+
+          #erase last smell
+          if v1 != 0 begin
+            v2 := v1
+            v2 += -4
+            i += v2
+            sprite v4 v5 4
+            v2 := 4
+            i += v2
+          end
+
+          #and draw the smell
+          sprite v4 v5 4
+
+
+          #and increment this animation's frame
+          if v1 == 12 begin
+            smell-right -= v3
+            smell-right -= v3
+            smell-right -= v3
+            smell ^= v0
+            smell-over |= v0
+          else
+            smell-right += v3
+          end
+
+          #move i to next animation
+          v2 := 16
+          v2 -= v1
+          i += v2
+
+
+        else
+          v1 := 16
+          i += v1
+        end
+
+        #next column
+        v4 += 7
+
+        #increment v0
+        v0 <<= v0
+      again
+;
+
+#erase the final frame of a smell.
+: end-smells
+  if smell-over == 0 then return
+  v0 := 0b00010000
+  v0 &= game-info
+  if v0 != 0 then return
+
+  i := smell-gfx
+  v0 := 1
+  v2 := 16
+
+  #position (x,y)
+  v4 := 4
+  v5 := 1
+
+  loop
+    while v0 != 0
+    v1 := smell-over
+    v1 &= v0
+    if v1 == v0 begin
+      v2 := 12
+      i += v2
+      sprite v4 v5 4
+      v2 := 4
+      i += v2
+      v2 := 16
+      smell-over ^= v0
+      #only one smell gone per frame?
+      return
+    else
+      i += v2
+    end
+
+    v4 += 7
+    v0 <<= v0
+  again
+;
+
+
+#
+# DOG
+#
+: dog-left-gfx-0
+        0b01100100
+        0b11111100
+        0b00111100
+
+: dog-left-gfx-1
+        0b01100010
+        0b11111100
+        0b00111100
+
+: dog-right-gfx-0
+        0b00100110
+        0b00111111
+        0b00111100
+
+: dog-right-gfx-1
+        0b01000110
+        0b00111111
+        0b00111100
+
+#
+# the dog barks
+#
+: bark-left-gfx-0
+        0b00000100
+        0b00000100
+        0b00011100
+
+: bark-left-gfx-1
+        0b00000001
+        0b00000101
+        0b00000101
+        0b00011101
+        0b00000001
+        0b00111111
+
+: bark-right-gfx-0
+        0b00100000
+        0b00100000
+        0b00111000
+
+: bark-right-gfx-1
+        0b10000000
+        0b10100000
+        0b10100000
+        0b10111000
+        0b10000000
+        0b11111100
+
+: draw-bark
+  #too high up the screen
+  if dog-y < 6 begin
+    draw-dog
+    dog-y := 6
+    draw-dog
+  end
+
+  v3 := dog-x
+  v2 := 0b00111111
+  v3 &= v2
+
+  #too far on right side of screen
+  if v3 > 0x30 begin
+    draw-dog
+    #turn left.
+    v1 := 0b01111111
+    dog-x &= v1
+    draw-dog
+  end
+
+  #too far left.
+  if v3 < 0x10 begin
+    draw-dog
+    #turn right.
+    v1 := 0b10000000
+    dog-x |= v1
+    draw-dog
+  end
+
+  #we might be turned around so check and draw the bark.
+  v0 := dog-x
+  v1 := 0b10000000
+  v0 &= v1
+
+  #make a noise
+  v1 := 50
+  buzzer := v1
+  if v0 == 0 begin draw-bark-left return end
+  if v0 == 0b10000000 begin draw-bark-right return end
+;
+
+: draw-bark-right
+  v1 := dog-x
+  v0 := 0b00111111
+  v1 &= v0
+  v2 := dog-y
+
+  #draw the first frame
+  i := bark-right-gfx-0
+  v1 += 7
+  v2 += -2
+  sprite v1 v2 3
+
+  #quarter of a second wait
+  v0 := 15
+  custom-sync
+
+  #erase first frame
+  sprite v1 v2 3
+
+  #draw the second frame
+  i := bark-right-gfx-1
+  v1 += 3
+  v2 += -4
+  sprite v1 v2 6
+
+  #half a second wait
+  v0 := 30
+  custom-sync
+
+  #and erase the second frame
+  sprite v1 v2 6
+
+  return
+;
+
+: draw-bark-left
+  v1 := dog-x
+  v0 := 0b00111111
+  v1 &= v0
+  v2 := dog-y
+
+  #draw the first frame
+  i := bark-left-gfx-0
+  v1 += -7
+  v2 += -2
+  sprite v1 v2 3
+
+  #quarter of a second wait
+  v0 := 15
+  custom-sync
+
+  #erase first frame
+  sprite v1 v2 3
+
+  #draw the second frame
+  i := bark-left-gfx-1
+  v1 += -3
+  v2 += -4
+  sprite v1 v2 6
+
+  #half a second wait
+  v0 := 30
+  custom-sync
+
+  #and erase the second frame
+  sprite v1 v2 6
+;
+
+: check-bark-collision
+    v0 := 4
+    if v0 key begin
+      clear
+      draw-dog
+      draw-bark
+
+      #two second wait
+      v0 := 120
+      custom-sync
+
+      v1 := 4 #x
+      v2 := men-y
+      v3 := 1 #bitwise idx
+      v5 := 0 #numerical idx
+      i := man-gfx
+
+      loop
+        while v3 != 0b00000000
+        v4 := v3
+        v4 &= men-stutter
+        vf := 0
+        #draw the men.
+        if v4 == v3 begin #last frame stuttered
+          v2 += 1
+          sprite v1 v2 8
+        else              #last frame didn't stutter
+          sprite v1 v2 8
+        end
+
+        #collision
+        if vf == 1 begin
+          clear
+          sprite v1 v2 8
+          #wait and then draw the man with his hands up.
+          #one & a half second wait
+          v0 := 90
+          custom-sync
+
+          #erase and draw man with hands up.
+          sprite v1 v2 8
+          i := man-caught-gfx
+          sprite v1 v2 8
+
+          #two second wait
+          v0 := 120
+          custom-sync
+
+          # got 'em.
+          # game-info's first three bits 0-7
+          v0 := game-info
+          v3 := 0b00000111
+          v0 &= v3
+
+          if v0 == v5 begin #right guy.
+            #next-level
+            v0 := 0
+          else
+            #display the right man.
+            i := man-gfx
+            v5 := 0
+            v1 := 4
+            loop
+              while v0 != v5
+              v1 += 7
+              v5 += 1
+            again
+
+            v3 := 0
+            loop
+              while v2 != 24
+              sprite v1 v2 8
+              v0 := 10
+              custom-sync
+              sprite v1 v2 8
+              v2 += 1
+            again
+
+            v0 := 90
+            custom-sync
+            game-over
+            v0 := 1
+          end
+
+          return
+
+        else
+          sprite v1 v2 8
+          if v4 == v3 then v2 += -1
+        end
+
+
+        v3 <<= v3
+        v1 += 7
+        v5 += 1
+      again
+
+      game-over
+      v0 := 1
+      return
+    end
+
+    #there was no bark...
+    v0 := 255
+;
+
+
+: draw-dog
+  v0 := dog-x
+  v1 := 0b11000000
+  v0 &= v1
+  if v0 == 0 then i := dog-left-gfx-0
+  if v0 == 0b01000000 then i := dog-left-gfx-1
+  if v0 == 0b10000000 then i := dog-right-gfx-0
+  if v0 == 0b11000000 then i := dog-right-gfx-1
+
+  sprite dog-x dog-y 3
+;
+
+: move-dog
+    #key input
+    v1 := dog-x
+    v2 := dog-y
+
+    #grab true x position from dog-x
+    v0 := 0b00111111
+    v1 &= v0
+
+    #left
+    v0 := 7
+    if v0 key begin
+      v1 += -1
+      #bounds check
+      if v1 == 0  then  v1 := 1
+      #indicate moving left
+      v0 := 0b01111111
+      v1 &= v0
+    else
+      #right
+      v0 := 9
+      if v0 key begin
+        v1 += 1
+        #bounds checking
+        if v1 == 56 then  v1 := 55
+        #indicate moving right
+        v0 := 0b10000000
+        v1 |= v0
+      else
+        #no movement this frame
+        v0 := 0b01000000
+        dog-x ^= v0
+        return
+      end
+    end
+
+    #up
+    v0 := 5
+    if v0 key then v2 += -1
+
+    #down
+    v0 := 8
+    if v0 key then v2 += 1
+
+    #vertical bounds checking
+    if v2 == 0  then  v2 := 1
+    if v2 == 29 then  v2 := 28
+
+    #wag tail
+    v0 := dog-x
+
+    dog-x := v1
+    dog-y := v2
+
+    v3 := 0b01000000
+    v4 := 0b10111111
+    v0 &= v3
+    if v0 == 0 then dog-x |= v3
+    if v0 == 0b01000000 then dog-x &= v4
+;
+
+
+#
+# men's graphics
+# by assemblee guy ??
+# THANKS!
+#
+: man-gfx
+        0b00100000
+        0b01110000
+        0b11111000
+        0b01110000
+        0b01110000
+        0b01110000
+        0b01010000
+        0b01010000
+
+: man-caught-gfx
+        0b10101000
+        0b11111000
+        0b01110000
+        0b01110000
+        0b01110000
+        0b01110000
+        0b01010000
+        0b01010000
+
+: drug-bag-gfx 0x38 0x28 0xFE 0xFE 0xFE 0xFE
+
+
+#draw the men (initial render)
+: draw-men
+  v0 := 0
+  v1 := 4 #x
+  v2 := men-y
+  i := man-gfx
+  loop
+    while v0 != 8
+    sprite v1 v2 8
+    v0 += 1
+    v1 += 7
+  again
+;
+
+#function where we draw & stutter men
+: stutter-men
+  v5 := random 255
+  if v5 == men-stutter then return
+
+  v1 := 4 #x
+  v2 := men-y
+  v3 := 1 #idx
+  i := man-gfx
+
+  loop
+    while v3 != 0b00000000
+    v4 := v3
+    v4 &= men-stutter
+    #erase last man.
+    if v4 == v3 begin #last frame stuttered
+      v4 &= v5
+      if v4 != v3 begin #but this one doesn't
+        v2 += 1
+        sprite v1 v2 8
+        v2 += -1
+        vf := 0
+        sprite v1 v2 8
+      end
+
+    else    #last frame didn't stutter
+      v4 := v3
+      v4 &= v5
+      if v4 == v3 begin #but this one did
+        sprite v1 v2 8
+        v2 += 1
+        vf := 0
+        sprite v1 v2 8
+        v2 += -1
+      end
+    end
+
+    #collision
+    if vf == 1 begin
+      smell |= v3
+    end
+
+    v3 <<= v3
+    v1 += 7
+  again
+
+  men-stutter := v5
+;
+
+#erase the men and move them down a pixel.
+: move-men
+  v0 := 0b00111111
+  game-info &= v0
+
+  v2 := men-y
+
+  v1 := 4 #x
+  v3 := 1 #idx
+  i := man-gfx
+
+  loop
+    while v3 != 0b00000000
+    v4 := v3
+    v4 &= men-stutter
+    vf := 0
+    #erase last man.
+    if v4 == v3 begin #last frame stuttered
+      v2 += 1
+      sprite v1 v2 8
+      v2 += 1
+      sprite v1 v2 8
+      v2 += -2
+    else    #last frame didn't stutter
+      sprite v1 v2 8
+      v2 += 1
+      sprite v1 v2 8
+      v2 += -1
+    end
+
+    #collision
+    if vf == 1 begin
+      smell |= v3
+    end
+
+    v3 <<= v3
+    v1 += 7
+  again
+
+  men-y += 1
+;
+
+#show the player which smell they're looking for.
+: show-drug-smell
+  v0 := 21
+  v1 := 18
+  #find the drugs.
+  i := d
+  sprite v0 v1 4
+  v0 += 5
+
+  i := r
+  sprite v0 v1 4
+  v0 += 5
+
+  i := u
+  sprite v0 v1 4
+  v0 += 5
+
+  i := g
+  sprite v0 v1 4
+  v0 += 5
+
+   i := s
+   sprite v0 v1 4
+
+  v0 := 28
+  v1 := 9
+  i := drug-bag-gfx
+  sprite v0 v1 6
+  v0 += 1
+
+  long-sync
+
+  #animate the drug smell
+  v1 := game-info
+  v2 := 0b00000111
+  v1 &= v2
+
+  #debug : show which man
+  #v2 := 8
+  #v1 += 1
+  #i := hex v1
+  #v1 += -1
+  #sprite v2 v2 5
+
+  v4 := 0
+  loop
+    v2 := 0
+    v3 := 16
+    while v4 != 3
+
+    i := smell-gfx
+    loop
+      while v2 != v1
+      i += v3
+      v2 += 1
+    again
+
+    v5 := 4
+    v2 := 0
+    v3 := men-y
+    v3 += -3
+    loop
+      while v2 != 4
+      v2 += 1
+      sprite v0 v3 4
+      long-sync
+      sprite v0 v3 4
+      i += v5
+    again
+
+    long-sync
+    long-sync
+
+    v4 += 1
+  again
+;
+
+: init-board
+  init-smells
+
+  #reset the dog.
+  dog-x := 28
+  dog-y := 24
+
+  #reset smell frames
+  smell       := 0
+  smell-over  := 0
+  smell-left  := 0
+  smell-right := 0
+  game-info  := 0
+
+  men-y := 7
+  men-stutter := 0
+
+  #pick a drug-smell.
+  v0 := random 0b00000111
+  #and assign it to the board
+  game-info |= v0
+
+  v0 := 0b00111000
+  game-info |= v0
+
+  clear
+  show-drug-smell
+  clear
+;
+
+: sync
+  v0 := 0b00111000
+  v0 &= game-info
+  if v0 == 0 begin
+    v0 := 0b00111000
+    #advance movement frame.
+    game-info += 0b01000000
+  else
+    v0 += -0b00001000
+  end
+
+  v1 := 0b11000111
+  game-info &= v1
+  game-info |= v0
+;
+
+#wait for quarter of a second.
+: long-sync
+  vf := 15
+  delay := vf
+  loop
+    vf := delay
+    if vf != 0 then
+  again
+;
+
+#wait for a specific amount of time given by v0
+: custom-sync
+  delay := v0
+  loop
+    v0 := delay
+    if v0 != 0 then
+  again
+;
+
+: main
+  first-splash
+  loop
+    board
+    clear
+    splash-gfx
+  again
+;
+
+: board
+  init-board
+
+  smell := random 255
+
+  draw-men
+  draw-dog
+
+  loop
+    #move and draw the dog
+    draw-dog
+    move-dog
+    draw-dog
+
+    v0 := game-info
+    v1 := 0b11000000
+    v0 &= v1
+    if v0 == 0b11000000 begin
+      move-men
+      activate-smell
+    else
+      stutter-men
+    end
+
+    if men-y == 23 begin
+      game-over
+      return
+    end
+
+    end-smells
+    animate-smells
+
+    check-bark-collision
+    if v0 == 0 then return
+    if v0 == 1 then return
+
+    sync
+  again
+;
+
+: game-over
+  clear
+  #position
+  v1 := 9
+  v2 := 11
+
+  i := G
+  sprite v1 v2 5
+  v1 += 6
+
+  i := a
+  sprite v1 v2 4
+  v1 += 5
+
+  i := m
+  sprite v1 v2 4
+  v1 += 7
+
+  i := e
+  sprite v1 v2 4
+  v1 += 7
+
+  i := O
+  sprite v1 v2 5
+  v1 += 6
+
+  i := v
+  sprite v1 v2 4
+  v1 += 5
+
+  i := e
+  sprite v1 v2 4
+  v1 += 5
+
+  i := r
+  sprite v1 v2 4
+
+  v0 := 180
+  custom-sync
+;
+
+
+#
+# SPLASH SCREEN GRAPHICS.
+#
+
+# font is frog princess by Anna Anthropy. Thanks!
+
+: H
+0x48 0xC8 0xD8 0xE8 0xC8
+
+: e
+0x70 0xC0 0xE0 0xF0
+
+: d
+0xE0 0xD0 0xD0 0xF0
+
+: g
+0x70 0xC0 0xD0 0x70
+
+: h
+0xD0 0xD0 0xF0 0xD0
+
+: o
+0x70 0xD0 0xD0 0xE0
+
+: t
+0xF0 0x60 0x60 0x60
+
+: r
+0xE0 0xD0 0xE0 0xB0
+
+: u
+0xD0 0xD0 0xD0 0x60
+
+: s
+0x70 0xE0 0x30 0xE0
+
+
+: G
+0x38 0x40 0xD8 0xC8 0x78
+
+: a
+0x70 0xD0 0xF0 0xD0
+
+: m
+0xC4 0xEC 0xD4 0xC4
+
+: v
+0xD0 0xD0 0xE0 0x40
+
+: O
+0x70 0xD8 0xC8 0xC8 0x70
+
+
+#we can only do this once when we start the game.
+: first-splash
+  #invert the colors by changing the screen to black
+  i := smell-gfx
+
+  v0 := 0
+  v1 := 0
+
+  loop
+    v0 := 0
+    while v1 != 30
+    loop
+      while v0 != 64
+      sprite v0 v1 15
+      v0 += 8
+    again
+    v1 += 15
+  again
+
+  #last two lines
+  v0 := 0
+  loop
+    while v0 != 64
+    sprite v0 v1 2
+    v0 += 8
+  again
+
+  splash-gfx
+;
+
+: splash-gfx
+  #draw the text
+  v0 := 5
+  v1 := 5
+
+  i := H
+  sprite v0 v1 5
+
+  v0 += 6
+  i := e
+  sprite v0 v1 4
+
+  v0 += 5
+  i := d
+  sprite v0 v1 4
+
+  v0 += 5
+  i := g
+  sprite v0 v1 4
+
+  v0 += 5
+  i := e
+  sprite v0 v1 4
+
+  v0 += 5
+  i := h
+  sprite v0 v1 4
+
+  v0 += 5
+  i := o
+  sprite v0 v1 4
+
+  v0 += 5
+  i := g
+  sprite v0 v1 4
+
+  v0 := 10
+  v1 := 13
+  i := t
+  sprite v0 v1 4
+
+  v0 += 5
+  i := h
+  sprite v0 v1 4
+
+  v0 += 5
+  i := e
+  sprite v0 v1 4
+
+  v0 := 13
+  v1 := 19
+  i := d
+  sprite v0 v1 4
+
+  v0 += 5
+  i := r
+  sprite v0 v1 4
+
+  v0 += 5
+  i := u
+  sprite v0 v1 4
+
+  v0 += 5
+  i := g
+  sprite v0 v1 4
+
+  v0 += 7
+  i := d
+  sprite v0 v1 4
+
+  v0 += 5
+  i := o
+  sprite v0 v1 4
+
+  v0 += 5
+  i := g
+  sprite v0 v1 4
+
+  #wait for 1 seconds
+  v0 := 60
+  delay := v0
+
+  loop
+    v0 := delay
+    while v0 != 0
+  again
+
+  v0 := 0x10
+  buzzer := v0
+;
